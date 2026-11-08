@@ -65,13 +65,20 @@
 > [!IMPORTANT]
 > 刷视频**不需要启动后端、不消耗 API Key**，它只做「点开 → 播完 → 下一个」。
 
-<!--
-截图放这里：把图片放进 docs/screenshots/ 后取消下面的注释即可
 <p align="center">
-  <img src="docs/screenshots/panel.png" width="720" alt="答题面板">
+  <img src="docs/screenshots/panel.png" width="780" alt="答题面板：识别题干与选项，给出推荐答案、置信度与解析">
 </p>
-<p align="center"><sub>答题面板：推荐答案、置信度、解析与本题花费</sub></p>
--->
+<p align="center"><sub>答题面板 · 自动识别题干与选项，给出推荐答案、置信度与解析</sub></p>
+
+<p align="center">
+  <img src="docs/screenshots/summary.png" width="780" alt="题目汇总：一轮做完后按题号整理答案，可一键复制">
+</p>
+<p align="center"><sub>题目汇总 · 一轮做完后按题号整理，一键复制文本</sub></p>
+
+<p align="center">
+  <img src="docs/screenshots/video.png" width="780" alt="视频刷课浮窗：显示当前视频、真实进度与操作日志">
+</p>
+<p align="center"><sub>视频刷课 · 浮窗显示当前视频、真实进度与日志，不伪造观看时长</sub></p>
 
 ---
 
