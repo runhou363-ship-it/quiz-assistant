@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>mock exam</title>
+<style>body{font-family:sans-serif;padding:24px} label{display:block;margin:6px 0}</style>
+</head>
+<body>
+<div id="app">
+  <div id="qbox">
+    <div id="stem">1. 中国的首都是（ ）</div>
+    <div id="opts"></div>
+  </div>
+  <div id="nav">
+    <button id="prev">上一题</button>
+    <button id="next">下一题</button>
+  </div>
+</div>
+<script>
+const QS = [
+  { q: '1. 中国的首都是（ ）', o: ['北京', '上海', '广州', '深圳'] },
+  { q: '2. 水的化学式是（ ）', o: ['H2O', 'CO2', 'O2', 'NaCl'] },
+  { q: '3. 一年有多少个月（ ）', o: ['10', '11', '12', '13'] },
+];
+let idx = 0;
+function render() {
+  document.getElementById('stem').textContent = QS[idx].q;
+  document.getElementById('opts').innerHTML = QS[idx].o.map((t, i) =>
+    `<label class="opt"><input type="radio" name="q" value="${i}"> ${String.fromCharCode(65 + i)}. ${t}</label>`
+  ).join('');
+  document.body.dataset.idx = String(idx);
+  document.getElementById('next').disabled = idx >= QS.length - 1;
+  document.getElementById('prev').disabled = idx <= 0;
+}
+document.getElementById('next').onclick = () => { if (idx < QS.length - 1) { idx++; render(); } };
+document.getElementById('prev').onclick = () => { if (idx > 0) { idx--; render(); } };
+
+// ?late=1 ：题目比插件面板晚 3.5 秒才渲染出来，模拟新开页面加载慢
+if (new URLSearchParams(location.search).get('late') === '1') {
+  document.getElementById('stem').textContent = '';
+  setTimeout(render, 3500);
+} else {
+  render();
+}
+
+/* —— chrome API 桩：storage 后端用 localStorage，跨刷新保留，模拟真实浏览器重启后打开新页面 —— */
+window.chrome = {
+  runtime: {
+    lastError: undefined,
+    onMessage: { addListener(fn) { (window.__qaListeners = window.__qaListeners || []).push(fn); } },
+    sendMessage(msg, cb) {
+      const t = msg && msg.type;
+      if (t === 'decode') { setTimeout(() => cb({ ok: false, error: 'no font in mock' }), 5); return; }
+      if (t === 'solve') {
+        if (localStorage.getItem('__fail') === '1') {
+          setTimeout(() => cb({ ok: false, error: 'mock backend down' }), 40);
+          return;
+        }
+        setTimeout(() => cb({
+          ok: true, answer_indices: [1], answer_index: 1, answer_texts: ['选项'],
+          question_type: 'single', confidence: 'high', explanation: 'mock 解析', votes: { 1: 3 },
+        }), 80);
+        return;
+      }
+      setTimeout(() => cb({ ok: false, error: 'unsupported ' + t }), 5);
+    },
+  },
+  storage: {
+    local: {
+      get(keys, cb) {
+        const all = JSON.parse(localStorage.getItem('__st') || '{}');
+        const d = {};
+        if (typeof keys === 'string') { if (keys in all) d[keys] = all[keys]; }
+        else if (Array.isArray(keys)) keys.forEach((k) => { if (k in all) d[k] = all[k]; });
+        else Object.assign(d, all);
+        setTimeout(() => cb(d), 0);
+      },
+      set(obj, cb) {
+        const all = JSON.parse(localStorage.getItem('__st') || '{}');
+        Object.assign(all, obj);
+        localStorage.setItem('__st', JSON.stringify(all));
+        setTimeout(() => cb && cb(), 0);
+      },
+      remove(key, cb) {
+        const all = JSON.parse(localStorage.getItem('__st') || '{}');
+        delete all[key];
+        localStorage.setItem('__st', JSON.stringify(all));
+        setTimeout(() => cb && cb(), 0);
+      },
+    },
+  },
+};
+</script>
+</body>
+</html>

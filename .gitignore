@@ -1,0 +1,51 @@
+# ============================================================
+# 密钥与本地配置 —— 绝对不要提交
+# ============================================================
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+
+# ============================================================
+# 运行时产物（首次运行会自动重建）
+# ============================================================
+# 同题答案缓存 / 字体位图缓存 / 字体映射
+server/cache/
+# 诊断导出的题目与字体样本（体积大，且含页面内容）
+server/debug/
+# 汇总报告
+server/reports/
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+
+# Node
+node_modules/
+npm-debug.log*
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 打包产物（由 tests/pack_release.py 现场生成，不进版本库）
+*.zip
+dist/
+build/
+
+# 临时文件
+*.tmp
+*.bak
+*.orig
+*.log
+~$*

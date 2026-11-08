@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <style>
+    body { font-family: system-ui, "Microsoft YaHei", sans-serif; width: 344px; padding: 12px; margin: 0; color: #222; }
+    .head { display: flex; align-items: baseline; gap: 6px; }
+    .head h1 { font-size: 14px; margin: 0; }
+    .head .ver { font-size: 11px; color: #94a3b8; }
+    .sec { font-size: 12px; font-weight: 700; color: #1e3a8a; margin: 10px 0 2px; }
+    .tip { font-size: 11px; color: #64748b; line-height: 1.5; margin: 3px 0 8px; }
+    label { display: block; font-size: 12px; color: #444; margin: 8px 0 4px; }
+    input[type=text], input[type=number] { padding: 6px 8px; border: 1px solid #ccc; border-radius: 6px; font-size: 12px; }
+    input[type=text] { width: 100%; box-sizing: border-box; }
+    .chk { display: flex; align-items: center; gap: 6px; font-weight: 400; margin: 8px 0; font-size: 12px; }
+    .chk input { width: auto; }
+    button { width: 100%; padding: 9px; margin-top: 8px; border: 0; border-radius: 8px; background: #2563eb; color: #fff; font-size: 13px; cursor: pointer; }
+    button:disabled { background: #94a3b8; cursor: default; }
+    button.green { background: #16a34a; }
+    button.green:hover { background: #15803d; }
+    button.ghost { background: #e2e8f0; color: #334155; }
+    button.ghost:hover { background: #cbd5e1; }
+    button.tiny { width: auto; padding: 4px 9px; margin: 0; font-size: 11px; background: #e2e8f0; color: #334155; }
+    button.tiny:hover { background: #cbd5e1; }
+    .row-btns { display: flex; gap: 8px; }
+    .row-btns button { flex: 1; }
+    .mini-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #475569; margin-top: 8px; }
+    .mini-row select { padding: 4px 6px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; }
+    .mini-row .spacer { flex: 1; }
+    .optline { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #444; margin: 6px 0 2px; }
+    .vb-status { margin-top: 8px; font-size: 12px; line-height: 1.6; color: #1f2937; background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px; }
+    .vb-status b { color: #1d4ed8; }
+    .vb-log { color: #64748b; font-size: 11px; margin-top: 4px; }
+    .muted { color: #7b8794; font-size: 11px; margin-top: 2px; }
+    .warn { color: #b45309; font-size: 11px; margin-top: 4px; line-height: 1.5; }
+    .bstat { margin-top: 6px; font-size: 11px; color: #94a3b8; line-height: 1.5; }
+    .bstat.ok { color: #15803d; } .bstat.warn2 { color: #b45309; } .bstat.bad { color: #b91c1c; }
+    .status { margin-top: 8px; font-size: 12px; color: #2563eb; min-height: 14px; line-height: 1.5; }
+    .scan-list { margin-top: 8px; max-height: 190px; overflow: auto; border: 1px solid #e2e8f0; border-radius: 8px; background: #fff; padding: 6px; font-size: 11.5px; line-height: 1.55; }
+    .scan-list .row { padding: 3px 0; border-bottom: 1px dashed #f1f5f9; color: #334155; word-break: break-all; }
+    .scan-list .row:last-child { border-bottom: 0; }
+    details { margin-top: 10px; border-top: 1px solid #eee; padding-top: 4px; }
+    details summary { font-size: 11px; color: #64748b; cursor: pointer; padding: 3px 0; }
+    details[open] summary { color: #2563eb; }
+  </style>
+</head>
+<body>
+  <div class="head"><h1>答题学习助手</h1><span class="ver" id="verTag"></span></div>
+
+  <div class="sec">自动看视频</div>
+  <div class="tip"><b>从当前页这个视频开始</b>，播完自动跳下一个，前面的和已标 ✓ 的都不回头；<b>作业自己点</b>。<b style="color:#b91c1c">要刷满完成度请用 1 倍速（真实时长）</b>：雨课堂/学堂在线等平台按真实观看时长计完成度，2 倍速只会计约一半，会显示「未完成」。</div>
+  <div class="row-btns">
+    <button id="vbrushStart" class="green">从当前页开始刷</button>
+    <button id="vbrushStop" class="ghost">停止</button>
+  </div>
+  <div class="mini-row">
+    倍速 <select id="vbrushSpeed">
+      <option value="1" selected>1x（真实时长·保证满完成度）</option>
+      <option value="1.5">1.5x（快一点，部分平台仍可能不计）</option>
+      <option value="2">2x（最快·但部分平台不计完成度）</option>
+    </select>
+    <span class="spacer"></span>
+    <button id="vbrushDiag" class="tiny">诊断目录</button>
+  </div>
+  <div id="vbrushStatus" class="vb-status" style="display:none"></div>
+  <div class="mini-row">
+    <button id="vbrushRecheck" class="tiny">刷新并核对完成</button>
+    <span class="muted">平台要刷新才显示 ✓ 时用，不会继续刷视频</span>
+  </div>
+
+  <details id="moreSettings">
+    <summary>更多设置 / 诊断结果</summary>
+    <label class="chk"><input type="checkbox" id="vbrushSkipDone" checked /> 跳过目录里已标完成（✓）的视频，不重复刷</label>
+    <label class="chk"><input type="checkbox" id="vbrushSlow" /> 平台加载慢：点开后多等一会儿</label>
+    <div class="optline">播完等待平台确认 <input type="number" id="vbrushConfirm" value="12" min="0" max="120" style="width:52px" /> 秒（0＝立刻跳）</div>
+    <label class="chk"><input type="checkbox" id="vbrushAutoSlow" checked /> 连续 2 个没打勾时自动改成 1 倍速</label>
+    <div class="optline">单轮最多处理 <input type="number" id="vbrushMax" value="100" min="1" max="999" style="width:52px" /> 个视频（到数自动停）</div>
+    <div class="optline">单集最长等待 <input type="number" id="vbrushWait" value="20" min="1" max="120" style="width:52px" /> 分钟</div>
+    <div id="vbrushDiagBox" class="scan-list" style="display:none"></div>
+  </details>
+
+  <details id="examTools">
+    <summary>答题辅助（需启动后端）</summary>
+    <label>本地后端地址</label>
+    <input type="text" id="backend" placeholder="http://127.0.0.1:8787" />
+    <div class="bstat" id="bstatus">正在检测后端…</div>
+    <label>题目网页链接</label>
+    <input type="text" id="url" placeholder="https://... 课程 / 答题页面" />
+    <label class="chk"><input type="checkbox" id="chapters" /> 连同本页的“章节 / 课时”链接一起处理</label>
+    <button id="open">打开并自动解答</button>
+    <button id="combine" class="green">合并已保存的报告</button>
+    <button id="start" class="ghost">在当前页面启动辅助</button>
+    <div class="tip">逐题找答案并翻页（不替你选），汇总在面板窗口里显示，不会下载文件。</div>
+  </details>
+
+  <div class="status" id="status"></div>
+  <div id="reportBox" style="display:none;max-height:240px;overflow:auto;white-space:pre-wrap;word-break:break-word;font-size:11px;line-height:1.5;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:8px;margin-top:8px"></div>
+  <button id="copyReport" class="ghost" style="display:none">复制合并汇总</button>
+
+  <script src="popup.js"></script>
+</body>
+</html>

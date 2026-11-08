@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>模拟课程目录</title>
+<style>
+  body { margin: 0; font: 14px system-ui, "Microsoft YaHei", sans-serif; }
+  #side { position: fixed; left: 0; top: 0; width: 250px; height: 160px; overflow-y: auto;
+          border-right: 1px solid #ddd; background: #f8fafc; }
+  #main { margin-left: 270px; padding: 16px; }
+  ul { margin: 0; padding: 0; }
+  li { list-style: none; padding: 20px 10px; border-bottom: 1px solid #eee; cursor: pointer;
+       display: flex; gap: 8px; align-items: center; }
+  .tag { border: 1px solid #6366f1; color: #4f46e5; border-radius: 8px; padding: 2px 8px; font-size: 12px; }
+  li.completed { background: #ecfdf5; }
+  video { width: 320px; height: 180px; background: #111; }
+</style>
+</head>
+<body>
+<div id="side"><ul id="items"></ul></div>
+<div id="main">
+  <h3>播放器</h3>
+  <div id="player">（尚未点开视频）</div>
+  <div id="log"></div>
+</div>
+<script>
+/* 模拟雨课堂「学习空间」左侧目录：视频 / 作业 混合任务点 */
+window.__clicked = [];
+window.__clickedHomework = [];
+window.__batches = 1;
+/* 几种「点了没反应 / 播放器不自动播」的可复现场景，由 URL 参数开启 */
+const QS = location.search;
+const TITLE_ONLY = QS.indexOf('titleClick') >= 0;   // 事件只绑在标题 span 上
+const NEED_FAILS = QS.indexOf('firstFail') >= 0 ? 4 : 0;  // 前几次点击故意不生效
+const NEED_PLAY = QS.indexOf('needPlay') >= 0;     // 初始暂停，只有静音才允许自动播放
+const NO_PLAY = QS.indexOf('noPlay') >= 0;         // 彻底不能自动播放，且点开即标「已完成」
+const CHECKED_FIRST = QS.indexOf('checkedFirst') >= 0;  // 第一个视频预先带 ✓ 完成图标
+const EARLY_CHECK = QS.indexOf('earlyCheck') >= 0;      // 播放途中打勾但进度不推进
+const ACTIVE_AT = /activeAt=(\d+)/.exec(QS);             // 第几个 li 是当前页
+const DONE_AT = /doneAt=(\d+)/.exec(QS);                 // 第几个 li 已完成
+const NEAR_TAIL = QS.indexOf('nearTail') >= 0;           // 在距结尾 1.5 秒处停 2 秒（旧逻辑会提前跳走）
+const LATE_CHECK = /lateCheck=(\d+)/.exec(QS);           // 播完后 N 秒平台才打勾
+const NO_CHECK = QS.indexOf('noCheck') >= 0;              // 播完但平台永远不打勾
+const NO_IDS = QS.indexOf('noIds') >= 0;                 // 条目没有稳定 id，key 只能靠文本（打勾后文本会变）
+const STUCK = QS.indexOf('stuck=1') >= 0;                // 播放中进度卡住十几秒（模拟播放器状态机卡死）
+const DECOY_VIDEO = QS.indexOf('decoyVideo=1') >= 0;     // 页面里还有一个小/隐藏的干扰 video
+const SPEED_TRAP = QS.indexOf('speedTrap=1') >= 0;       // 页面上有个「倍速」按钮，点了会暂停（1x 不该碰它）
+const DONE_FIRST = /doneFirst=(\d+)/.exec(QS);           // 前 N 个视频预先标记完成（验证不回头重刷）
+const UL_ACTIVE = QS.indexOf('ulActive=1') >= 0;          // 章节容器带 active，同时里面还有多个视频
+let blocked = 0;
+window.__speedClicked = 0;
+
+// 干扰视频：尺寸达标但不会播（真实页面里的缩略图/预加载），应被忽略
+if (DECOY_VIDEO) {
+  const dv = document.createElement('video');
+  dv.id = 'decoyVideo';
+  dv.muted = true;
+  dv.style.cssText = 'position:absolute;left:-400px;top:0;width:80px;height:48px';
+  document.body.insertBefore(dv, document.body.firstChild);
+}
+
+const DATA = [
+  { id: 'v1', type: '视频', title: '一、绪论' },
+  { id: 'h1', type: '作业', title: '一、绪论作业' },
+  { id: 'v2', type: '视频', title: '二、历史发展' },
+  { id: 'v3', type: '视频', title: '三、学科性质' },
+  { id: 'h2', type: '作业', title: '三、学科性质作业' },
+  { id: 'v4', type: '视频', title: '四、系统自然观' },
+  { id: 'v5', type: '视频', title: '五、生态自然观' },
+];
+let shown = 3;   // 先渲染 3 个，滚动到底才追加（验证滚动找视频）
+if (DONE_FIRST) shown = DATA.length;   // 预先完成场景：一次渲染全，避免懒加载影响启动判定
+
+function render() {
+  const ul = document.getElementById('items');
+  ul.innerHTML = '';
+  if (UL_ACTIVE) ul.className = 'chapter active';   // 章节容器带选中态（不该被当成「当前条目」）
+  const doneFirstIds = DONE_FIRST
+    ? DATA.filter((x) => x.type === '视频').slice(0, Number(DONE_FIRST[1])).map((x) => x.id)
+    : [];
+  DATA.slice(0, shown).forEach((d, i) => {
+    const li = document.createElement('li');
+    const done = (window.__platformDone && window.__platformDone.indexOf(d.id) >= 0) ||
+                 (DONE_AT && i === Number(DONE_AT[1])) ||
+                 doneFirstIds.indexOf(d.id) >= 0;
+    li.className = 'task-item' + (done ? ' completed' : '');
+    if (!NO_IDS) li.dataset.nodeId = d.id;
+    if (ACTIVE_AT && i === Number(ACTIVE_AT[1])) li.classList.add('active');
+    li.innerHTML = '<span class="tag">' + d.type + '</span><span class="title">' + d.title + '</span>' +
+      (done || (CHECKED_FIRST && d.type === '视频' && d.id === 'v1')
+        ? '<i class="icon-check done-icon">✓</i>' : '');
+    if (TITLE_ONLY) {
+      // 只绑标题：点标签 / 点整行都不会有反应（模拟 Vue @click 绑在标题上）
+      li.querySelector('.title').onclick = (e) => { e.stopPropagation(); openItem(d, li); };
+    } else {
+      li.onclick = () => openItem(d, li);
+    }
+    ul.appendChild(li);
+  });
+}
+window.__clickedDone = [];       // 播放器真的播完
+window.__platformDone = [];      // 平台在目录里打上 ✓（可能晚，也可能永远不）
+
+function openItem(d, li) {
+  if (d.type === '作业') { window.__clickedHomework.push(d.id); return; }
+  if (NEED_FAILS && blocked++ < NEED_FAILS) return;
+  window.__clicked.push(d.id);
+  const p = document.getElementById('player');
+  p.innerHTML = '';
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'position:relative;width:320px;height:180px';
+  p.appendChild(wrap);
+
+  const v = document.createElement('video');
+  v.id = 'mockVideo';
+  v.style.cssText = 'width:320px;height:180px;background:#111';
+  let t = 0, paused = NEED_PLAY || NO_PLAY, iv = null, tailHeld = false;
+  let stuckStarted = false, stuckUntil = 0;
+  Object.defineProperty(v, 'duration', { get: () => 4 });
+  Object.defineProperty(v, 'currentTime', {
+    get: () => t,
+    set: (x) => {
+      t = x;
+      if (STUCK) stuckUntil = 0;          // seek 一下就能跨过卡点（真实播放器的常见表现）
+      window.__seeks = (window.__seeks || 0) + 1;
+    },
+  });
+  Object.defineProperty(v, 'ended', { get: () => t >= 4 });
+  Object.defineProperty(v, 'paused', { get: () => paused });
+  // 真实 <video> 必有这两个属性；用来区分「缓冲中」和「播放器卡死」
+  Object.defineProperty(v, 'readyState', { get: () => 4 });
+  Object.defineProperty(v, 'buffered', {
+    get: () => ({ length: 1, start: () => 0, end: () => 4 }),
+  });
+
+  // 平台给目录打完成标记（按 data-node-id 重新定位，模拟 SPA 重建目录）
+  const markDone = () => {
+    if (NO_CHECK) return;
+    window.__platformDone.push(d.id);
+    const cur = NO_IDS
+      ? Array.prototype.slice.call(document.querySelectorAll('#items li')).find((l) => {
+          const t = l.querySelector('.title'); return t && t.textContent === d.title;
+        })
+      : document.querySelector('#items li[data-node-id="' + d.id + '"]');
+    if (!cur) return;
+    cur.classList.add('completed');
+    if (!cur.querySelector('.icon-check')) {
+      const ic = document.createElement('i');
+      ic.className = 'icon-check done-icon';
+      ic.textContent = '✓';
+      cur.appendChild(ic);
+    }
+  };
+  const startProgress = () => {
+    if (iv) return;
+    iv = setInterval(() => {
+      // 在「距结尾 1.5 秒」处停 2 秒：旧版会误判成播完并切走，平台永远收不到 ended
+      if (NEAR_TAIL && !tailHeld && t >= 2.5) {
+        tailHeld = true;
+        clearInterval(iv); iv = null;
+        setTimeout(startProgress, 2000);
+        return;
+      }
+      // 播放器「在播」但进度卡住十几秒（不是缓冲：readyState 和 buffered 都正常）
+      if (STUCK && !stuckStarted && t >= 1) { stuckStarted = true; stuckUntil = Date.now() + 20000; }
+      if (STUCK && stuckUntil && Date.now() < stuckUntil) return;
+      t = Math.min(4, t + 0.5);
+      if (t >= 4) {
+        clearInterval(iv); iv = null;
+        window.__clickedDone.push(d.id);
+        v.dispatchEvent(new Event('ended'));
+        if (LATE_CHECK) setTimeout(markDone, Number(LATE_CHECK[1]) * 1000);
+        else markDone();
+        document.getElementById('log').textContent = '播完 ' + d.title;
+      }
+    }, 120);
+  };
+
+  // 模拟浏览器自动播放策略：脚本发起的 play() 只有静音才被允许
+  v.play = () => {
+    if (NEED_PLAY && v.muted) { paused = false; startProgress(); }
+    return Promise.resolve();
+  };
+  wrap.appendChild(v);
+  document.getElementById('log').textContent = '正在播放 ' + d.title;
+
+  // 播放器自带的「倍速」按钮：真实平台点它会弹菜单，这里简化为「点了就暂停」。
+  // 1x 模式下工具不该碰它（点了就会让视频停住，看起来像进度不动）。
+  if (SPEED_TRAP) {
+    const sp = document.createElement('div');
+    sp.className = 'speed-trap';
+    sp.textContent = '倍速';
+    sp.style.cssText = 'position:absolute;right:8px;bottom:8px;width:44px;height:20px;' +
+                       'font-size:12px;background:#fff;color:#111;cursor:pointer;' +
+                       'text-align:center;line-height:20px;z-index:3';
+    sp.onclick = () => { window.__speedClicked++; paused = true; };
+    wrap.appendChild(sp);
+  }
+
+  if (NEED_PLAY) {
+    const btn = document.createElement('div');
+    btn.className = 'big-play-button';
+    btn.textContent = '▶';
+    btn.style.cssText = 'position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);' +
+                        'width:44px;height:44px;background:#fff;border-radius:50%;' +
+                        'text-align:center;line-height:44px;cursor:pointer;z-index:2';
+    btn.onclick = () => { if (v.muted) { paused = false; startProgress(); } };
+    wrap.appendChild(btn);
+  }
+  if (NO_PLAY) {
+    // 点开就标「已完成」，但一秒都没播：验证工具不会误判成看完
+    window.__platformDone.push(d.id);
+    li.classList.add('completed');
+  }
+  if (EARLY_CHECK) {
+    // 1.5 秒后给这条打上 ✓，但视频进度始终不动：验证「看到勾就跳，不等播完」。
+    // 目录可能被 render() 重建，所以按 data-node-id 重新找当前节点再打勾。
+    setTimeout(() => {
+      const cur = document.querySelector('#items li[data-node-id="' + d.id + '"]');
+      if (!cur) return;
+      window.__platformDone.push(d.id);
+      cur.classList.add('completed');
+      if (!cur.querySelector('.icon-check')) {
+        const ic = document.createElement('i');
+        ic.className = 'icon-check done-icon';
+        ic.textContent = '✓';
+        cur.appendChild(ic);
+      }
+    }, 1500);
+  }
+  if (!NEED_PLAY && !NO_PLAY && !EARLY_CHECK) startProgress();   // 默认模式：直接开始
+}
+
+document.getElementById('side').onscroll = (e) => {
+  const el = e.target;
+  if (el.scrollTop + el.clientHeight >= el.scrollHeight - 6 && shown < DATA.length) {
+    shown = Math.min(DATA.length, shown + 2);
+    window.__batches++;
+    render();
+  }
+};
+render();
+
+/* —— chrome API 桩（与 autorun.e2e.mjs 的桩互不影响） —— */
+window.__st = {};
+window.chrome = {
+  storage: {
+    local: {
+      get(k, cb) { const d = {}; if (k in window.__st) d[k] = window.__st[k]; setTimeout(() => cb(d), 0); },
+      set(o, cb) { Object.assign(window.__st, o); setTimeout(() => cb && cb(), 0); },
+    },
+  },
+  runtime: {
+    onMessage: {
+      addListener(fn) { window.__qvbListener = fn; },
+    },
+  },
+};
+</script>
+</body>
+</html>

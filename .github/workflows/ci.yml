@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    name: 语法与仓库卫生
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: JS 语法检查
+        run: |
+          set -e
+          for f in extension/*.js; do
+            node --check "$f"
+            echo "OK  $f"
+          done
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Python 语法检查
+        run: |
+          set -e
+          python -m py_compile server/app.py server/fontdec.py
+          for f in tests/*.py; do python -m py_compile "$f"; done
+          echo "OK"
+
+      - name: manifest 与文档版本一致
+        run: |
+          python - <<'PY'
+          import json, pathlib, sys
+          mf = json.loads(pathlib.Path("extension/manifest.json").read_text(encoding="utf-8"))
+          assert mf.get("manifest_version") == 3, "必须是 Manifest V3"
+          v = mf["version"]
+          readme = pathlib.Path("README.md").read_text(encoding="utf-8")
+          if v not in readme:
+              sys.exit(f"README.md 里没有当前版本号 {v}，请同步更新")
+          print("version:", v)
+          PY
+
+      - name: 密钥扫描
+        run: |
+          set -e
+          if git ls-files | grep -qE '(^|/)\.env$'; then
+            echo "::error::server/.env 被提交了，请立即移除并吊销 key"
+            exit 1
+          fi
+          matches=$(git grep -nIE 'sk-[A-Za-z0-9]{20,}' -- . ':!*.md' ':!*.csv' || true)
+          if [ -n "$matches" ]; then
+            echo "::error::发现疑似 API Key"
+            echo "$matches"
+            exit 1
+          fi
+          echo "未发现密钥"
+
+      - name: 大文件检查
+        run: |
+          big=$(find . -path ./.git -prune -o -type f -size +50M -print)
+          if [ -n "$big" ]; then
+            echo "::error::以下文件超过 50MB，GitHub 会拒绝或不建议入库"
+            echo "$big"
+            exit 1
+          fi
+          echo "无超大文件"

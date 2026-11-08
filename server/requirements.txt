@@ -1,0 +1,8 @@
+flask>=3.0
+flask-cors>=4.0
+requests>=2.31
+# 加密字体解码（雨课堂 xuetangx-com-encrypted-font）
+fonttools>=4.40
+brotli>=1.0
+numpy>=1.24
+pillow>=9.0

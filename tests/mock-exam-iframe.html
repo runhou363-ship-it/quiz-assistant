@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>mock exam iframe</title>
+<style>
+  body{font-family:sans-serif;padding:24px}
+  #dir{color:#888;max-width:720px;line-height:1.7}
+  iframe{width:680px;height:300px;border:1px solid #ddd;margin-top:12px}
+</style>
+</head>
+<body>
+<!-- 外层：课程目录（真实雨课堂外层页面左侧目录的等价物），绝不能当题干 -->
+<div id="dir">
+  目录　完成度 42.52%
+  第一章：探秘体质健康密码　作业　第一章作业
+  第一节 运动的益处　视频　运动的益处
+  第二节 运动的风险　视频　运动的风险
+  第三节 国家学生体质健康测试是什么　视频　国家学生体质健康测试是什么
+  第二章：运动健身的科学原理　作业　第二章作业
+  第一节 运动健身的本质是什么　视频　运动健身的本质是什么
+  第二节 不同运动项目的营养特点　视频　不同运动项目的营养特点
+  第三节 糖、脂肪、蛋白质和运动　视频　糖、脂肪、蛋白质和运动
+</div>
+
+<!-- 反自动化诱饵：屏幕外，含假选项 E + 假「下一题」。绝不能被抓/被点 -->
+<div data-automation-risk-decoys="true"
+     style="position:fixed;left:-10000px;top:-10000px;width:1px;height:1px;overflow:hidden;pointer-events:none;contain:strict;">
+  <label class="el-radio homeworkElRadio" data-risk-target="decoy" data-risk-decoy-type="option">
+    <input type="radio" name="decoy" data-risk-target="decoy" data-risk-decoy-type="option">E
+  </label>
+  <button type="button" class="el-button el-button--text" data-risk-target="decoy"
+          onclick="window.__decoyClicked=(window.__decoyClicked||0)+1">下一题</button>
+</div>
+
+<!-- 真正的题目在 iframe 里（problem-body + 判断题 true/false） -->
+<iframe id="exf" srcdoc='
+  <style>body{font-family:sans-serif;padding:12px}label{display:block;margin:6px 0}</style>
+  <div class="problem-body">运动健身的本质是什么（ ）</div>
+  <div class="opt-list">
+    <label class="el-radio homeworkElRadio"><input type="radio" name="q" value="true"></label>
+    <label class="el-radio homeworkElRadio"><input type="radio" name="q" value="false"></label>
+  </div>
+  <div class="type">判断题</div>
+  <button id="rnext" onclick="parent.__nextClicked=(parent.__nextClicked||0)+1">下一题</button>
+'></iframe>
+
+<script>
+window.__decoyClicked = 0;
+window.__nextClicked = 0;
+
+// ?broken=1：iframe 里没有题目（模拟「没识别出来」的题），用来验证绝不翻页跳过
+if (new URLSearchParams(location.search).get('broken') === '1') {
+  document.getElementById('exf').srcdoc =
+    '<style>body{font-family:sans-serif;padding:12px}</style>' +
+    '<div class="empty">（题目还没加载）</div>' +
+    '<button id="rnext" onclick="parent.__nextClicked=(parent.__nextClicked||0)+1">下一题</button>';
+}
+
+/* —— chrome API 桩：storage 后端用 localStorage，跨刷新保留 —— */
+window.chrome = {
+  runtime: {
+    lastError: undefined,
+    onMessage: { addListener(fn) { (window.__qaListeners = window.__qaListeners || []).push(fn); } },
+    sendMessage(msg, cb) {
+      const t = msg && msg.type;
+      if (t === 'decode') { setTimeout(() => cb({ ok: false, error: 'no font in mock' }), 5); return; }
+      if (t === 'solve') {
+        setTimeout(() => cb({
+          ok: true, answer_indices: [1], answer_index: 1, answer_texts: ['选项'],
+          question_type: 'judge', confidence: 'high', explanation: 'mock 解析', votes: { 1: 3 },
+        }), 40);
+        return;
+      }
+      setTimeout(() => cb({ ok: false, error: 'unsupported ' + t }), 5);
+    },
+  },
+  storage: {
+    local: {
+      get(keys, cb) {
+        const all = JSON.parse(localStorage.getItem('__st') || '{}');
+        const d = {};
+        if (typeof keys === 'string') { if (keys in all) d[keys] = all[keys]; }
+        else if (Array.isArray(keys)) keys.forEach((k) => { if (k in all) d[k] = all[k]; });
+        else Object.assign(d, all);
+        setTimeout(() => cb(d), 0);
+      },
+      set(obj, cb) {
+        const all = JSON.parse(localStorage.getItem('__st') || '{}');
+        Object.assign(all, obj);
+        localStorage.setItem('__st', JSON.stringify(all));
+        setTimeout(() => cb && cb(), 0);
+      },
+      remove(key, cb) {
+        const all = JSON.parse(localStorage.getItem('__st') || '{}');
+        delete all[key];
+        localStorage.setItem('__st', JSON.stringify(all));
+        setTimeout(() => cb && cb(), 0);
+      },
+    },
+  },
+};
+</script>
+</body>
+</html>

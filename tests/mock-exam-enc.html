@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>mock exam encrypted</title>
+<style>
+  @font-face{font-family:exam-data-decrypt-font;src:url("/fake-font.ttf") format("truetype")}
+  body{font-family:sans-serif;padding:24px}
+  #dir{color:#888;max-width:720px;line-height:1.7}
+  iframe{width:680px;height:320px;border:1px solid #ddd;margin-top:12px}
+</style>
+</head>
+<body>
+<!-- 外层课程目录（正常中文，绝不能当题干，也绝不能被套字形映射） -->
+<div id="dir">
+  目录　完成度 42.52%
+  第一节 运动的益处　视频　运动的益处
+  第二节 运动的风险　视频　运动的风险
+  第三节 糖、脂肪、蛋白质和运动　视频　糖、脂肪、蛋白质和运动
+</div>
+
+<!-- 真题目在 iframe 里：problem-body 混排「加密 span + 正常字」 -->
+<iframe id="exf"></iframe>
+
+<script>
+const Q = new URLSearchParams(location.search);
+const MODE = Q.get('mode') || '';
+window.__solveCalls = 0;
+window.__nextClicked = 0;
+
+/* 假加密字表：密文字 → 真字（只用于验证“只还原加密节点、不动正常字”） */
+const FAKE_MAP = {
+  油:'测', 容:'量', 伤:'位', 波:'体', 票:'前', 节:'时', 径:'可', 提:'以',
+  共:'单', 抗:'推', 行:'送', 甲:'游', 师:'标', 历:'或', 展:'发', 请:'性',
+};
+
+const ENC_STYLE =
+  '<style>' +
+  '@font-face{font-family:exam-data-decrypt-font;src:url("/fake-font.ttf") format("truetype")}' +
+  'body{font-family:sans-serif;padding:12px}' +
+  'label{display:block;margin:6px 0}' +
+  '.xuetangx-com-encrypted-font{font-family:exam-data-decrypt-font, sans-serif}' +
+  '</style>';
+
+const head = (extra) => '<!doctype html><html><head><meta charset="utf-8">' + ENC_STYLE + '</head><body>' + extra + '</body></html>';
+
+// 默认：题干「加密 span + 正常字」混排（真实雨课堂就是这种结构）
+const ENC_QUESTION =
+  '<div class="problem-body">' +
+    '<span class="xuetangx-com-encrypted-font">油容</span>坐' +
+    '<span class="xuetangx-com-encrypted-font">伤波票</span>屈' +
+    '<span class="xuetangx-com-encrypted-font">节</span>,' +
+    '<span class="xuetangx-com-encrypted-font">径提共</span>臂' +
+    '<span class="xuetangx-com-encrypted-font">抗行甲师历</span>' +
+    '<span class="xuetangx-com-encrypted-font">展请抗行甲师</span>( )' +
+  '</div>' +
+  '<div class="opts">' +
+    '<label><input type="radio" name="q" value="A">A. 正确</label>' +
+    '<label><input type="radio" name="q" value="B">B. 错误</label>' +
+  '</div>' +
+  '<div class="type">判断题</div>' +
+  '<button id="rnext" onclick="parent.__nextClicked=(parent.__nextClicked||0)+1">下一题</button>';
+
+// mixed：题干是**纯明文**（一个加密 span 都没有），只有选项里有加密字。
+// 用来验证「映射已存在时，也绝不把映射套到正常文字上」。
+const MIXED =
+  '<div class="problem-body">以下关于运动后补水的说法，正确的是（ ）</div>' +
+  '<div class="opts">' +
+    '<label><input type="radio" name="q" value="A">A. <span class="xuetangx-com-encrypted-font">径提</span>少量多次</label>' +
+    '<label><input type="radio" name="q" value="B">B. 一次性大量饮水</label>' +
+  '</div>' +
+  '<div class="type">单选题</div>' +
+  '<button id="rnext" onclick="parent.__nextClicked=(parent.__nextClicked||0)+1">下一题</button>';
+
+document.getElementById('exf').srcdoc = head(Q.get('mixed') === '1' ? MIXED : ENC_QUESTION);
+
+/* —— chrome API 桩 —— */
+window.chrome = {
+  runtime: {
+    lastError: undefined,
+    onMessage: { addListener(fn) { (window.__qaListeners = window.__qaListeners || []).push(fn); } },
+    sendMessage(msg, cb) {
+      const t = msg && msg.type;
+      const p = (msg && msg.payload) || {};
+      if (t === 'fetch_font') {
+        setTimeout(() => cb({ ok: true, b64: 'ZmFrZQ==', url: p.url, size: 4, magic: 'wOFF' }), 5);
+        return;
+      }
+      if (t === 'fetch_text') { setTimeout(() => cb({ ok: true, text: '' }), 5); return; }
+      if (t === 'decode') {
+        if (MODE === 'fail') { setTimeout(() => cb({ ok: false, error: 'font broken' }), 5); return; }
+        setTimeout(() => cb({
+          ok: true,
+          mapping: FAKE_MAP,
+          info: { mapped: Object.keys(FAKE_MAP).length, used: 20, avg_score: 1.92, min_score: 1.5, low_conf: [], unresolved: [] },
+        }), 5);
+        return;
+      }
+      if (t === 'solve') {
+        window.__solveCalls++;
+        setTimeout(() => cb({
+          ok: true, answer_indices: [1], answer_index: 1, answer_texts: ['正确'],
+          question_type: 'judge', confidence: 'high', explanation: 'mock 解析', votes: { 1: 2 },
+        }), 30);
+        return;
+      }
+      setTimeout(() => cb({ ok: false, error: 'unsupported ' + t }), 5);
+    },
+  },
+  storage: {
+    local: {
+      get(keys, cb) {
+        const all = JSON.parse(localStorage.getItem('__st') || '{}');
+        const d = {};
+        if (typeof keys === 'string') { if (keys in all) d[keys] = all[keys]; }
+        else if (Array.isArray(keys)) keys.forEach((k) => { if (k in all) d[k] = all[k]; });
+        else Object.assign(d, all);
+        setTimeout(() => cb(d), 0);
+      },
+      set(obj, cb) {
+        const all = JSON.parse(localStorage.getItem('__st') || '{}');
+        Object.assign(all, obj);
+        localStorage.setItem('__st', JSON.stringify(all));
+        setTimeout(() => cb && cb(), 0);
+      },
+      remove(key, cb) {
+        const all = JSON.parse(localStorage.getItem('__st') || '{}');
+        delete all[key];
+        localStorage.setItem('__st', JSON.stringify(all));
+        setTimeout(() => cb && cb(), 0);
+      },
+    },
+  },
+};
+</script>
+</body>
+</html>
