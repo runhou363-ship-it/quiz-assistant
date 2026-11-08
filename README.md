@@ -295,7 +295,8 @@ quiz-assistant/
 ├── docs/                    # 文档
 ├── start-server.bat         # Windows 一键启动
 ├── check-config.bat         # 配置自检
-├── LICENSE
+├── LICENSE                  # MIT
+├── THIRD-PARTY-NOTICES.md   # 第三方组件与字体许可
 └── README.md
 ```
 
@@ -365,6 +366,8 @@ python tests/pack_release.py 0.9.27
 代码采用 [MIT](LICENSE)。
 
 内置参考字体 `server/fonts/NotoSansSC-VF.ttf`（Noto Sans SC / 思源黑体）采用 **SIL Open Font License 1.1**，允许随本软件再分发，全文见 [`server/fonts/OFL.txt`](server/fonts/OFL.txt)。
+
+第三方组件的完整列表与各自的许可说明见 [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)。
 
 ---
 
