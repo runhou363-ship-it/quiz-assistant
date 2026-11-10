@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "答题学习助手",
-  "version": "0.9.27",
+  "version": "0.9.28",
   "description": "抓取/截图题目，搜索并展示答案与解析，由用户自行作答。仅限学习辅助用途。",
   "permissions": [
     "activeTab",

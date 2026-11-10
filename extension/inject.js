@@ -2,7 +2,7 @@
  * 两种模式：
  *  手动模式：点“查找答案”看推荐+解析，自己点选项、自己翻页。
  *  自动模式：逐题识别答案并自动点「下一题」翻页（不替你勾选任何选项），
- *            跑到最后一题导出汇总后自动关闭；下一轮须手动勾选，开启时会清空上一轮汇总。
+ *            一点「查看汇总」或跑到最后一题就立刻关闭；下一轮须手动勾选，开启时会清空上一轮汇总。
  */
 (function () {
   if (window.__qaAssistantInjected) return;
@@ -607,13 +607,13 @@
           <option value="auto">自动识别</option><option value="single">单选题</option><option value="multi">多选题</option><option value="judge">判断题</option>
         </select> <span style="color:#94a3b8">识别不准可手动指定</span></div>
         <div class="opt-toggle"><label><input type="checkbox" id="qa-auto"> 自动模式：逐题找答案并自动翻页（不替你勾选选项）</label></div>
-        <div class="opt-toggle" style="color:#64748b">自动点「下一题」翻页，你只管勾选选项并点「提交」（若平台需要）；刷完自动导出汇总并关闭自动模式，下一轮请手动勾选。速度/准确率优先、花费最低。</div>
+        <div class="opt-toggle" style="color:#64748b">自动点「下一题」翻页，你只管勾选选项并点「提交」（若平台需要）；点「查看汇总」或刷完自动导出时立刻关闭自动模式，下一轮请手动勾选。速度/准确率优先、花费最低。</div>
         <div class="actions">
           <button class="ghost" id="qa-re" title="清空上一轮汇总，从当前题重新记">重新抓取</button>
           <button class="primary" id="qa-solve">查找答案</button>
         </div>
         <div class="actions">
-          <button class="ghost" id="qa-export">查看汇总</button>
+          <button class="ghost" id="qa-export" title="生成汇总并立刻关闭自动模式">查看汇总</button>
           <button class="ghost" id="qa-undo" style="display:none">撤销清空</button>
           <button class="ghost" id="qa-diag">诊断结构</button>
         </div>
@@ -1620,7 +1620,7 @@
       }
     }
 
-    // 彻底关闭自动模式（一轮刷完 / 点「重新抓取」时）：
+    // 彻底关闭自动模式（点「查看汇总」/ 一轮刷完 / 点「重新抓取」时）：
     // 不仅停本页循环，还要清掉「跨页面自动恢复」的开关意图与续跑进度，
     // 否则刷新页面或打开下一份作业时 restoreAuto()/看门狗会把它又拉起来。
     // 异常暂停（断线、抓不到题、等提交）不走这里，仍保留续跑能力。
@@ -1941,8 +1941,10 @@
         : `复制失败，请手动选中面板里的题干与选项；夸克${opened ? "已打开" : "未能打开"}。`;
     }
 
-    // endRound=true：由「自动跑到最后一题」触发的收尾，导出后彻底关闭自动模式
+    // 只要生成汇总就视为一轮结束：手动点「查看汇总」、或自动跑到最后一题，都立刻关闭自动模式。
+    // 放在函数最开头同步执行，不等后端 /report 返回——否则网络慢时复选框还会一直勾着。
     async function exportReport(endRound) {
+      stopAutoMode();
       if (!sessionLog.length) { statusEl.textContent = "还没有整理到任何题目。"; return; }
 
       const buckets = { high: [], medium: [], low: [], conflict: [], none: [] };
@@ -1996,16 +1998,10 @@
       } catch (e) {
         statusEl.textContent = "汇总已在窗口显示（可点「复制汇总文本」）；后端未连接，未保存副本。";
       }
-      if (endRound) {
-        // 一轮正常跑完：连「跨页面自动恢复」的开关意图一起清掉，等手动勾选才开下一轮
-        stopAutoMode();
-        statusEl.textContent += " 本轮已结束，自动模式已关闭；下一份作业请手动勾选「自动模式」。";
-      } else {
-        // 手动点「查看汇总」：保持原有行为，只停本页循环，自动模式仍然保留
-        autoRunning = false;
-        runToken++;
-        clearAutoState();
-      }
+      // 点「查看汇总」当场就关，不拖到下一次「重新抓取」或换页面
+      statusEl.textContent += endRound
+        ? " 本轮已结束，自动模式已关闭；下一份作业请手动勾选「自动模式」。"
+        : " 自动模式已关闭；下一轮请手动勾选「自动模式」。";
     }
 
     panel.querySelector("#qa-close").addEventListener("click", () => {

@@ -6,7 +6,7 @@
 
 <sub>Manifest V3 · 后端只监听 127.0.0.1 · 支持任意 OpenAI 兼容接口</sub>
 
-![version](https://img.shields.io/badge/version-0.9.27-blue)
+![version](https://img.shields.io/badge/version-0.9.28-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![chrome](https://img.shields.io/badge/Chrome-MV3-4285F4)
 ![python](https://img.shields.io/badge/Python-3.10%2B-3776AB)
@@ -187,12 +187,13 @@ python app.py
 | --- | --- |
 | 只看当前这题 | 点「查找答案」 |
 | 整理整份作业 | 勾选「自动模式」：逐题查 → 只点下一题 → 结束给汇总并**自动关闭自动模式** |
+| 随时结束本轮 | 点「查看汇总」：**当场关闭自动模式**，不用等下一次重新抓取 |
 | 刷下一份作业 | 先复制上一轮汇总，再手动勾选「自动模式」（开启时会清空上一轮，可撤销） |
 | 只统计当前这一轮 | 点「重新抓取」：无条件清空旧汇总并关闭自动模式 |
 | 拿不准 | 点「夸克核对（复制本题）」，或把 `QA_SAMPLES` 调到 5 |
 | 刷课程视频 | 在扩展弹窗点「从当前页开始刷」（不需要后端） |
 
-> 一轮跑完后不会跨页面自动续跑；断线、题目未渲染、平台要求先提交等**异常暂停**仍保留续跑能力。
+> 一轮跑完、或点「查看汇总」后都会当场关闭自动模式，且不会跨页面自动续跑；断线、题目未渲染、平台要求先提交等**异常暂停**仍保留续跑能力。
 
 详细操作见 [`docs/使用说明.md`](docs/使用说明.md)。
 

@@ -2,6 +2,7 @@
  *
  * v0.9.27 起自动模式的生命周期：一轮跑完自动关闭、下次必须手动勾选；
  * 点「重新抓取」无条件清空汇总并关闭自动模式；手动勾选会清空上一轮汇总。
+ * v0.9.28 起点「查看汇总」也当场关闭自动模式。
  *   A 一轮跑完后自动模式自动关闭，连跨页面的开关意图也清掉
  *   B 刷新后不再自动启动，等待手动开启
  *   C 点「重新抓取」立即清空并关闭，不再自动翻页
@@ -14,6 +15,7 @@
  *   J 未做过的题上点一次「重新抓取」就直接清空（不再需要二次确认）
  *   K 「夸克核对」复制题目并打开夸克搜索，不影响自动流程
  *   L 手动开启自动模式时自动清空上一轮汇总，并重新跑完一轮
+ *   M 点「查看汇总」当场关闭自动模式，题目晚渲染也不再自动跑
  *
  * 运行： node tests/autorun.e2e.mjs
  * 需要本机 Chrome；路径可用环境变量 CHROME_PATH 指定。
@@ -341,6 +343,24 @@ check("L 手动开启自动模式会清空上一轮并重新跑完",
     && /已清空上一轮/.test(clearedL.status) && clearedL.undo
     && s.idx === "2" && /已整理 3 题/.test(s.count) && !s.auto,
   JSON.stringify({ beforeL, clearedL, after: s }));
+
+// M 点「查看汇总」当场关闭：不等下一次抓题 / 重新抓取，题目晚渲染出来也不会再自动跑
+await cdp.eval(`localStorage.clear(); ${INTENT_ON}`);
+await reload("?late=1");
+await cdp.eval(INJECT);
+await sleep(1500);
+const beforeM = await cdp.eval(STATE);
+const clickedM = await cdp.eval(`(() => {
+  document.querySelector('#qa-export').click();
+  return { auto: !!document.querySelector('#qa-auto').checked };
+})()`);
+await sleep(7000);
+s = await cdp.eval(STATE);
+const intentM = await cdp.eval(`(() => { const a = JSON.parse(localStorage.getItem('__st') || '{}'); return !!(a.qaAutoEnabled && a.qaAutoEnabled.on); })()`);
+check("M 点查看汇总当场关闭自动模式，题目晚渲染也不再自动跑",
+  beforeM.auto && !clickedM.auto && !s.auto && !intentM
+    && s.idx === "0" && /已整理 0 题/.test(s.count),
+  JSON.stringify({ beforeM, clickedM, after: s, intentM }));
 
 console.log("\n==== 汇总 ====");
 results.forEach((r) => console.log(`${r.ok ? "PASS" : "FAIL"} ${r.name}`));
