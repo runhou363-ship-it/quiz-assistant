@@ -39,10 +39,14 @@ QA_CACHE=1
 """
 
 # 运行必需的文件（相对项目根目录）
+# 元组 = (源路径, 包内路径)：文档整理后说明书移到了 docs/，包里仍放在根目录方便直接打开
 FILES = [
-    "使用说明.md",
-    "快速上手.txt",
+    ("docs/使用说明.md", "使用说明.md"),
+    ("docs/快速上手.txt", "快速上手.txt"),
     "README.md",
+    "LICENSE",
+    "THIRD-PARTY-NOTICES.md",
+    "CHANGELOG.md",
     "start-server.bat",
     "check-config.bat",
     "extension/manifest.json",
@@ -57,9 +61,14 @@ FILES = [
     "server/.env.example",
     "server/fonts/NotoSansSC-VF.ttf",
     "server/fonts/README.txt",
+    "server/fonts/OFL.txt",
 ]
 
 SECRET_RE = re.compile(r"(sk-[A-Za-z0-9]{16,}|[0-9a-f]{32}\.[A-Za-z0-9]{20,})")
+
+
+def src_dst(item):
+    return item if isinstance(item, tuple) else (item, item)
 
 
 def main():
@@ -68,13 +77,14 @@ def main():
     if os.path.exists(out):
         os.remove(out)
 
-    missing = [f for f in FILES if not os.path.exists(os.path.join(ROOT, f))]
+    missing = [f for f in FILES if not os.path.exists(os.path.join(ROOT, src_dst(f)[0]))]
     if missing:
-        raise SystemExit("缺少文件：" + ", ".join(missing))
+        raise SystemExit("缺少文件：" + ", ".join(str(src_dst(f)[0]) for f in missing))
 
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
-        for rel in FILES:
-            z.write(os.path.join(ROOT, rel), "quiz-assistant/" + rel)
+        for item in FILES:
+            rel, dst = src_dst(item)
+            z.write(os.path.join(ROOT, rel), "quiz-assistant/" + dst)
         z.writestr("quiz-assistant/server/.env", ENV_TEMPLATE)
 
     # 自检：包里不能出现任何形似密钥的字符串

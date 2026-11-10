@@ -1,7 +1,8 @@
 /* 答题学习助手 —— 页面内注入脚本
  * 两种模式：
  *  手动模式：点“查找答案”看推荐+解析，自己点选项、自己翻页。
- *  自动模式：逐题识别答案并自动点「下一题」翻页（不替你勾选任何选项），直到最后一题导出汇总。
+ *  自动模式：逐题识别答案并自动点「下一题」翻页（不替你勾选任何选项），
+ *            跑到最后一题导出汇总后自动关闭；下一轮须手动勾选，开启时会清空上一轮汇总。
  */
 (function () {
   if (window.__qaAssistantInjected) return;
@@ -606,9 +607,9 @@
           <option value="auto">自动识别</option><option value="single">单选题</option><option value="multi">多选题</option><option value="judge">判断题</option>
         </select> <span style="color:#94a3b8">识别不准可手动指定</span></div>
         <div class="opt-toggle"><label><input type="checkbox" id="qa-auto"> 自动模式：逐题找答案并自动翻页（不替你勾选选项）</label></div>
-        <div class="opt-toggle" style="color:#64748b">自动点「下一题」翻页，你只管勾选选项并点「提交」（若平台需要）；刷完自动导出汇总。速度/准确率优先、花费最低。</div>
+        <div class="opt-toggle" style="color:#64748b">自动点「下一题」翻页，你只管勾选选项并点「提交」（若平台需要）；刷完自动导出汇总并关闭自动模式，下一轮请手动勾选。速度/准确率优先、花费最低。</div>
         <div class="actions">
-          <button class="ghost" id="qa-re">重新抓取</button>
+          <button class="ghost" id="qa-re" title="清空上一轮汇总，从当前题重新记">重新抓取</button>
           <button class="primary" id="qa-solve">查找答案</button>
         </div>
         <div class="actions">
@@ -642,9 +643,8 @@
     let autoRunning = false;     // 本面板里的自动流程是否在跑
     let runToken = 0;            // 只允许一条自动流程链，重新启动时旧链立即失效
     let lastSolveFail = "";      // 上一次 runSolve 失败的原因：noopts / noquestion / neterr
-    let undoSnapshot = null;     // 「重新抓取」清空汇总前的快照，供「撤销清空」还原
+    let undoSnapshot = null;     // 清空汇总前的快照，供「撤销清空」还原
     let logEpoch = 0;            // 汇总版本号：清空/撤销时 +1，让作废的请求结果不再写回
-    let reArmAt = 0;             // 上次提示“再点一次清空”的时间；8 秒内再点 = 确认清空重来
     let current = { question: "", options: [], _els: [] };
 
     // 加密字体：DOM 里是假字。向后端要一次「假字→真字」映射，之后本地复用，
@@ -866,8 +866,8 @@
 
     function updateCount() { countEl.textContent = `已整理 ${sessionLog.length} 题`; }
 
-    // —— 「重新抓取」= 以当前题为新起点重新汇总 ——
-    // 之前的记录整份作废（可撤销），当前题会重新作答，汇总从这道题开始重新累加。
+    // —— 清空汇总（点「重新抓取」或手动勾选「自动模式」时）——
+    // 之前的记录整份作废（可撤销），汇总从当前这一轮重新开始累加。
     function resetSummary() {
       const n = sessionLog.length;
       if (!n) return 0;
@@ -1037,27 +1037,22 @@
       await decodeCurrent();
     }
 
-    // resume=true：点「重新抓取」时如果自动模式还开着，抓完就接着跑，不要停在这里干等
-    // fromButton=true：用户点的是「重新抓取」→ 之前的汇总作废，从当前题开始重新记（可撤销）
+    // resume=true：兼容旧的续跑调用（现在按钮会顺手关掉自动模式，这里自然不会再跑）
+    // fromButton=true：用户点了「重新抓取」→ 无条件清空旧汇总，并关闭自动模式等手动开启
     async function load(resume, fromButton) {
       invalidateFont();   // 重新抓取时强制重新发现字体和映射，避免用上一题的旧字体解错字
       await applyCurrent(extractQuestion());
 
       let note = "";
-      if (fromButton && sessionLog.length) {
+      if (fromButton) {
+        // 点一次就清空：汇总只保留从当前题开始的这一轮（保留「撤销清空」兜底）。
+        // 同时彻底关闭自动模式：不让它抓完又自动翻页，也不让它跨页面自己恢复。
         const n = sessionLog.length;
-        const gap = reArmAt ? Date.now() - reArmAt : 0;
-        // 8 秒内再点一次算确认；小于 0.4 秒当作误双击（同一个动作连点两下）
-        const forced = gap > 400 && gap < 8000;
-        if (alreadyLogged() || forced) {
-          resetSummary();
-          reArmAt = 0;
-          note = `已从本题重新开始汇总（之前 ${n} 题已移除，点「撤销清空」可恢复）。`;
-        } else {
-          // 当前题还没记过（断线续跑最常见）：保留进度，从本题接着记；想清空就再点一次
-          reArmAt = Date.now();
-          note = `本题还没在汇总里，已保留之前 ${n} 题并从本题接着记；若要清空重来，8 秒内再点一次「重新抓取」。`;
-        }
+        if (n) resetSummary();
+        stopAutoMode();
+        note = n
+          ? `已清空之前 ${n} 题，汇总从本题重新记；自动模式已关闭，下次请手动勾选（点「撤销清空」可恢复）。`
+          : "汇总已是空的；自动模式已关闭，下次请手动勾选。";
       }
 
       const typeTag = current.qtype === "multi" ? "（多选）"
@@ -1625,6 +1620,19 @@
       }
     }
 
+    // 彻底关闭自动模式（一轮刷完 / 点「重新抓取」时）：
+    // 不仅停本页循环，还要清掉「跨页面自动恢复」的开关意图与续跑进度，
+    // 否则刷新页面或打开下一份作业时 restoreAuto()/看门狗会把它又拉起来。
+    // 异常暂停（断线、抓不到题、等提交）不走这里，仍保留续跑能力。
+    function stopAutoMode() {
+      runToken++;
+      autoRunning = false;
+      autoMode = false;
+      autoEl.checked = false;
+      setAutoIntent(false);
+      clearAutoState();
+    }
+
     // 这道题是否已经整理过：同时比“还原后的文字”和“DOM 原文”，
     // 这样刷新后即使字体还没取到（只拿到密文）也能识别出做过、直接翻页。
     function alreadyLogged() {
@@ -1802,7 +1810,7 @@
         }
         autoRunning = false;
         statusEl.textContent = "已经是最后一题（“下一题”不可用），正在导出汇总…";
-        exportReport();
+        exportReport(true);   // 一轮正常跑完：导出后关闭自动模式，等手动开启下一轮
         return;
       }
       clearHighlights();
@@ -1933,7 +1941,8 @@
         : `复制失败，请手动选中面板里的题干与选项；夸克${opened ? "已打开" : "未能打开"}。`;
     }
 
-    async function exportReport() {
+    // endRound=true：由「自动跑到最后一题」触发的收尾，导出后彻底关闭自动模式
+    async function exportReport(endRound) {
       if (!sessionLog.length) { statusEl.textContent = "还没有整理到任何题目。"; return; }
 
       const buckets = { high: [], medium: [], low: [], conflict: [], none: [] };
@@ -1987,9 +1996,16 @@
       } catch (e) {
         statusEl.textContent = "汇总已在窗口显示（可点「复制汇总文本」）；后端未连接，未保存副本。";
       }
-      autoRunning = false;
-      runToken++;         // 停掉本页的循环，但保留「自动模式」意图：打开下一份作业会自动继续
-      clearAutoState();   // 汇总已生成，清除续跑状态，下次是全新一轮
+      if (endRound) {
+        // 一轮正常跑完：连「跨页面自动恢复」的开关意图一起清掉，等手动勾选才开下一轮
+        stopAutoMode();
+        statusEl.textContent += " 本轮已结束，自动模式已关闭；下一份作业请手动勾选「自动模式」。";
+      } else {
+        // 手动点「查看汇总」：保持原有行为，只停本页循环，自动模式仍然保留
+        autoRunning = false;
+        runToken++;
+        clearAutoState();
+      }
     }
 
     panel.querySelector("#qa-close").addEventListener("click", () => {
@@ -1997,15 +2013,18 @@
       clearAutoState();
       clearHighlights(); panel.remove(); style.remove(); window.__qaAssistantInjected = false;
     });
-    // 「重新抓取」：刷新题目 + 以当前题为新起点重新汇总 + 把停下来的自动流程接上
+    // 「重新抓取」：清空上一轮汇总 + 关闭自动模式，只刷新当前题（不自动续跑）
     panel.querySelector("#qa-re").addEventListener("click", () => { load(true, true); });
     undoEl.addEventListener("click", undoReset);
     autoEl.addEventListener("change", (e) => {
       autoMode = e.target.checked;
       setAutoIntent(autoMode);
       if (autoMode) {
-        statusEl.textContent = sessionLog.length
-          ? `自动模式已开启：从当前题继续（已整理 ${sessionLog.length} 题）…`
+        // 每次手动开启都是全新一轮：先清掉上一轮汇总（可撤销），再从当前题开跑
+        const n = sessionLog.length;
+        if (n) resetSummary();
+        statusEl.textContent = n
+          ? `自动模式已开启：已清空上一轮 ${n} 题，本轮从头开始记（点「撤销清空」可恢复）…`
           : "自动模式已开启：将逐题找答案并翻页（不替你选任何选项）。";
         startAuto(60);
       } else {
@@ -2013,7 +2032,7 @@
         autoMode = false;                     // 手动关闭：不要让「重新抓取」又跑起来
       }
     });
-    panel.querySelector("#qa-export").addEventListener("click", exportReport);
+    panel.querySelector("#qa-export").addEventListener("click", () => exportReport());
     panel.querySelector("#qa-check").addEventListener("click", checkWithQuark);
     resultEl.addEventListener("click", async (e) => {
       if (!e.target || e.target.id !== "qa-copy-report" || !currentReportMd) return;
@@ -2227,7 +2246,7 @@
       autoMode = true;
       autoRunning = true;
       autoEl.checked = true;
-      setAutoIntent(true);              // 记住意图：后续新标签页/新作业页也会自动继续
+      setAutoIntent(true);              // 本轮中途刷新可续跑；一轮跑完会被 stopAutoMode 清掉
       try { if (stayEl) stayEl.value = String(m.stay === undefined ? 0.4 : m.stay); } catch (e) {}
       statusEl.textContent = "自动模式（来自链接启动）：逐题找答案并翻页，不替你选选项。";
       saveAutoState();

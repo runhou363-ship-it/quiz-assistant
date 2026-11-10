@@ -1,17 +1,19 @@
 /* 自动流程端到端测试（无头 Chrome + CDP，不依赖任何 npm 包）
  *
- * 覆盖 v0.9.5 修的「新开页面 / 点重新抓取后不自动翻页」：
- *   A 新开的页面按上次勾选自动跑完整份
- *   B 刷新后再注入，仍然自动续跑
- *   C 自动跑的过程中连点「重新抓取」，仍能继续且不重复记题
+ * v0.9.27 起自动模式的生命周期：一轮跑完自动关闭、下次必须手动勾选；
+ * 点「重新抓取」无条件清空汇总并关闭自动模式；手动勾选会清空上一轮汇总。
+ *   A 一轮跑完后自动模式自动关闭，连跨页面的开关意图也清掉
+ *   B 刷新后不再自动启动，等待手动开启
+ *   C 点「重新抓取」立即清空并关闭，不再自动翻页
  *   D 没勾自动模式时，重新抓取只刷新、不乱跑
  *   E 题目比面板晚 3.5 秒渲染，也能等到并跑完
- *   F 后端断过一次（已暂停），恢复后点重新抓取能续跑
+ *   F 后端断过一次属异常暂停，仍保留自动模式；点重新抓取后停下，手动重勾可续跑
  *   G 手动模式「查找答案」只出结果、不翻页
- *   H 跑完后回到已做过的一题，点「重新抓取」→ 汇总从当前题重新开始
+ *   H 重新抓取无条件清空上一轮汇总（不自动重算本题）
  *   I 「撤销清空」能把清空前的汇总还原
- *   J 未做过的题上第一次保留进度，再点一次才清空
+ *   J 未做过的题上点一次「重新抓取」就直接清空（不再需要二次确认）
  *   K 「夸克核对」复制题目并打开夸克搜索，不影响自动流程
+ *   L 手动开启自动模式时自动清空上一轮汇总，并重新跑完一轮
  *
  * 运行： node tests/autorun.e2e.mjs
  * 需要本机 Chrome；路径可用环境变量 CHROME_PATH 指定。
@@ -140,22 +142,26 @@ function check(name, ok, detail) {
   console.log(`${ok ? "PASS" : "FAIL"}  ${name}${ok ? "" : "  " + (detail || "")}`);
 }
 
-// A 新页面：之前勾过自动模式 → 自动跑完
+// A 新页面按上次勾选跑完一轮 → 自动模式自动关闭（含跨页面意图）
 await cdp.eval(`localStorage.clear(); ${INTENT_ON}`);
 await reload();
 await cdp.eval(INJECT);
 await sleep(9000);
 let s = await cdp.eval(STATE);
-check("A 新页面按上次勾选自动跑完", s.panel && s.auto && s.idx === "2" && /已整理 3 题/.test(s.count), JSON.stringify(s));
+const intentA = await cdp.eval(`(() => { const a = JSON.parse(localStorage.getItem('__st') || '{}'); return !!(a.qaAutoEnabled && a.qaAutoEnabled.on); })()`);
+check("A 跑完一轮自动关闭自动模式（含跨页面意图）",
+  s.panel && !s.auto && !intentA && s.idx === "2" && /已整理 3 题/.test(s.count),
+  JSON.stringify({ ...s, intentA }));
 
-// B 刷新后仍自动
+// B 刷新后不该自己又跑起来：这是「等下一次手动开启」的核心
 await reload();
 await cdp.eval(INJECT);
 await sleep(9000);
 s = await cdp.eval(STATE);
-check("B 刷新后仍然自动续跑", s.panel && s.auto && s.idx === "2" && /已整理 3 题/.test(s.count), JSON.stringify(s));
+check("B 刷新后不再自动启动，等待手动开启",
+  s.panel && !s.auto && s.idx === "0" && /已整理 0 题/.test(s.count), JSON.stringify(s));
 
-// C 自动过程中连点重新抓取
+// C 点「重新抓取」：无条件清空 + 关闭自动模式，不再自动翻页
 await cdp.eval(`localStorage.clear()`);
 await reload();
 await cdp.eval(INJECT);
@@ -163,11 +169,15 @@ await sleep(1500);
 await cdp.eval(`(() => { const el = document.querySelector('#qa-auto'); el.checked = true; el.dispatchEvent(new Event('change')); })()`);
 await sleep(150);
 await cdp.eval(`document.querySelector('#qa-re').click()`);
+const afterFirstRe = await cdp.eval(STATE);
 await sleep(250);
 await cdp.eval(`document.querySelector('#qa-re').click()`);
 await sleep(9000);
 s = await cdp.eval(STATE);
-check("C 点重新抓取后继续翻页且不重复记题", s.idx === "2" && /已整理 3 题/.test(s.count), JSON.stringify(s));
+check("C 重新抓取点一次就清空并关闭自动模式",
+  /已整理 0 题/.test(afterFirstRe.count) && !afterFirstRe.auto
+    && s.idx === "0" && !s.auto && /已整理 0 题/.test(s.count),
+  JSON.stringify({ afterFirstRe, after: s }));
 
 // D 未开自动时重新抓取只刷新
 await cdp.eval(`localStorage.clear()`);
@@ -187,7 +197,7 @@ await sleep(13000);
 s = await cdp.eval(STATE);
 check("E 题目晚渲染也能自动跑完", s.idx === "2" && /已整理 3 题/.test(s.count), JSON.stringify(s));
 
-// F 后端断过 → 恢复后点重新抓取
+// F 后端断过属于「异常暂停」→ 仍保留自动模式；点重新抓取则按要求停下
 await cdp.eval(`localStorage.clear(); localStorage.setItem('__fail', '1'); ${INTENT_ON}`);
 await reload();
 await cdp.eval(INJECT);
@@ -195,11 +205,17 @@ await sleep(3200);
 const paused = await cdp.eval(STATE);
 await cdp.eval(`localStorage.setItem('__fail', '0')`);
 await cdp.eval(`document.querySelector('#qa-re').click()`);
+await sleep(3000);
+s = await cdp.eval(STATE);
+check("F 断线暂停仍保留自动模式；点重新抓取后停下",
+  /连接中断/.test(paused.status) && paused.auto && !s.auto && /已整理 0 题/.test(s.count),
+  JSON.stringify({ paused, after: s }));
+// F2 手动重新勾选，从零开始跑完一轮
+await cdp.eval(`(() => { const el = document.querySelector('#qa-auto'); el.checked = true; el.dispatchEvent(new Event('change')); })()`);
 await sleep(9000);
 s = await cdp.eval(STATE);
-check("F 后端恢复后重新抓取能续跑",
-  /连接中断/.test(paused.status) && paused.auto && s.idx === "2" && /已整理 3 题/.test(s.count),
-  JSON.stringify({ paused, after: s }));
+check("F2 手动重新勾选后从零跑完一轮",
+  s.idx === "2" && /已整理 3 题/.test(s.count) && !s.auto, JSON.stringify(s));
 
 // G 手动模式不翻页
 await cdp.eval(`localStorage.clear()`);
@@ -219,7 +235,7 @@ const g = await cdp.eval(`(() => {
 })()`);
 check("G 手动模式查找答案不翻页", g.idx === "0" && !g.auto && g.shown && /已整理 1 题/.test(g.count), JSON.stringify(g));
 
-// H 跑完后回到第 2 题，点「重新抓取」→ 汇总从当前题重新开始（3 题 → 2 题）
+// H 跑完一轮后回到第 2 题，点「重新抓取」→ 无条件清空，不再自动重算本题
 await cdp.eval(`localStorage.clear(); ${INTENT_ON}`);
 await reload();
 await cdp.eval(INJECT);
@@ -231,8 +247,9 @@ await sleep(1600);
 await cdp.eval(`document.querySelector('#qa-re').click()`);
 await sleep(6000);
 s = await cdp.eval(STATE);
-check("H 重新抓取后汇总从当前题重新开始",
-  beforeH.idx === "2" && /已整理 3 题/.test(beforeH.count) && s.idx === "2" && /已整理 2 题/.test(s.count),
+check("H 重新抓取无条件清空上一轮汇总",
+  beforeH.idx === "2" && /已整理 3 题/.test(beforeH.count)
+    && /已整理 0 题/.test(s.count) && !s.auto && s.idx === "1",
   JSON.stringify({ before: beforeH, after: s }));
 
 // I 手动模式下清空后可以「撤销清空」
@@ -258,11 +275,11 @@ await cdp.eval(`document.querySelector('#qa-undo').click()`);
 await sleep(600);
 s = await cdp.eval(STATE);
 check("I 撤销清空能还原之前的汇总",
-  /已整理 0 题/.test(cleared.count) && cleared.undo && /已从本题重新开始汇总/.test(cleared.status)
+  /已整理 0 题/.test(cleared.count) && cleared.undo && /已清空之前/.test(cleared.status)
     && /已整理 2 题/.test(s.count),
   JSON.stringify({ cleared, after: s }));
 
-// J 当前题还没做过时，第一次重新抓取保留进度，8 秒内再点一次才清空
+// J 当前题还没做过时，点一次「重新抓取」就直接清空（不再需要 8 秒内二次确认）
 await cdp.eval(`localStorage.clear()`);
 await reload();
 await cdp.eval(INJECT);
@@ -273,13 +290,10 @@ await cdp.eval(`document.querySelector('#next').click()`);       // 翻到第 2 
 await sleep(1800);
 await cdp.eval(`document.querySelector('#qa-re').click()`);
 await sleep(1200);
-const kept = await cdp.eval(STATE);
-await cdp.eval(`document.querySelector('#qa-re').click()`);      // 8 秒内再点一次 = 确认清空
-await sleep(1200);
 s = await cdp.eval(STATE);
-check("J 未做过的题上重新抓取保留进度，再点一次才清空",
-  /已整理 1 题/.test(kept.count) && /本题还没在汇总里/.test(kept.status) && /已整理 0 题/.test(s.count),
-  JSON.stringify({ kept, after: s }));
+check("J 未做过的题上点一次重新抓取就直接清空",
+  /已整理 0 题/.test(s.count) && /已清空之前 1 题/.test(s.status) && !s.auto,
+  JSON.stringify(s));
 
 // K 「夸克核对」：复制题干+选项并打开夸克 AI 搜索，且不改动汇总 / 自动流程
 await cdp.eval(`localStorage.clear()`);
@@ -301,6 +315,32 @@ check("K 夸克核对复制题目并打开搜索，不影响自动流程",
   k.opened.length === 1 && /quark\.cn\/s\?q=/.test(k.opened[0]) && /中国的首都/.test(kUrl)
     && /已复制题干|复制失败/.test(k.status) && k.idx === "0" && /已整理 0 题/.test(k.count) && !k.auto,
   JSON.stringify({ ...k, kUrl }));
+
+// L 手动开启自动模式 = 全新一轮：先清空上一轮汇总（可撤销），再从头跑完
+await cdp.eval(`localStorage.clear()`);
+await reload();
+await cdp.eval(INJECT);
+await sleep(1400);
+await cdp.eval(`document.querySelector('#qa-solve').click()`);
+await sleep(1600);
+const beforeL = await cdp.eval(STATE);
+const clearedL = await cdp.eval(`(() => {
+  const el = document.querySelector('#qa-auto');
+  el.checked = true; el.dispatchEvent(new Event('change'));
+  const b = document.querySelector('#qa-undo');
+  return {
+    undo: !!b && b.style.display !== 'none',
+    status: (document.querySelector('#qa-status') || {}).textContent || '',
+    count: (document.querySelector('#qa-count') || {}).textContent || '',
+  };
+})()`);
+await sleep(9000);
+s = await cdp.eval(STATE);
+check("L 手动开启自动模式会清空上一轮并重新跑完",
+  /已整理 1 题/.test(beforeL.count) && /已整理 0 题/.test(clearedL.count)
+    && /已清空上一轮/.test(clearedL.status) && clearedL.undo
+    && s.idx === "2" && /已整理 3 题/.test(s.count) && !s.auto,
+  JSON.stringify({ beforeL, clearedL, after: s }));
 
 console.log("\n==== 汇总 ====");
 results.forEach((r) => console.log(`${r.ok ? "PASS" : "FAIL"} ${r.name}`));
